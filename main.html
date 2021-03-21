@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GeoStream</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css"
+          integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A=="
+          crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"
+            integrity="sha 512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA=="
+            crossorigin=""></script>
+    <script src="https://alca.sfo2.cdn.digitaloceanspaces.com/tmijs/1.4.2/tmi.min.js"></script>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+</head>
+
+<style>
+    #mapid {
+        height: 800px;
+        width: 1000px;
+    }
+
+    #titleText {
+        font-size: xxx-large;
+        letter-spacing: 3px;
+        font-weight: bolder;
+    }
+
+    #channelForm {
+        font-size: xx-large;
+        text-align: center;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        -ms-transform: translate(-50%, -100%);
+        transform: translate(-50%, -100%);
+        z-index: 1000;
+    }
+
+    #channelInput,
+    #channelButton {
+        font-size: xx-large;
+        padding: 5px 10px;
+        border-width: 4px;
+        border-color: black;
+        box-shadow: none;
+    }
+
+    #channelInput {
+        border-top-left-radius: 20px;
+        border-bottom-left-radius: 20px;
+    }
+
+    #channelButton {
+        border-top-right-radius: 20px;
+        border-bottom-right-radius: 20px;
+    }
+
+    #mapid {
+        width: 96vw;
+        height: 80vh;
+        position: relative;
+        top: 50%;
+        left: 50%;
+        -ms-transform: translate(-50%);
+        transform: translate(-50%);
+        border-radius: 15px;
+        border-color: black;
+        border-block: 2px;
+        border-style: solid;
+    }
+
+    #guessesDisplay {
+        font-size: x-large;
+    }
+
+    #answer,
+    #settings,
+    #information {
+        border-radius: 15px;
+        border-color: black;
+        border-block: 2px;
+        border-style: solid;
+        padding: 10px;
+        width: 25vw;
+        position: absolute;
+    }
+
+    #settings {
+        left: 2vw;
+    }
+
+    #answer {
+        left: 31vw;
+    }
+
+    #information {
+        left: 60vw;
+        width: 35vw;
+    }
+
+    #guessesEnabled,
+    #changeableGuesses,
+    #subOnlyMode {
+        position: relative;
+        font-size: large;
+        padding: 4px;
+    }
+
+    #resetView,
+    #resetMap {
+        border-radius: 4px;
+        font-size: large;
+    }
+
+    #loadMore,
+    #answerButton {
+        border-radius: 3px;
+    }
+
+</style>
+
+<body>
+
+<form id="channelForm">
+    <p id="titleText">GeoStream</p>
+    <label for="channelInput"></label>
+    <input type="text" id="channelInput" placeholder="Channel Name">
+    <input id="channelButton" type="button" value="Begin" onclick="setChannel()">
+    <div style="opacity: 0">
+        <p>ajd</p>
+    </div>
+</form>
+
+<div id="mainGame" style="visibility: hidden">
+    <div id="mapid"></div>
+
+    <div style="padding: 10px;"></div>
+
+    <div id="settings">
+        <p id="guessesDisplay">Guesses: 0</p>
+        <hr>
+        <label id="guessesEnabled">
+            Allow Guesses
+            <input id="guessesEnabledBox" type="checkbox" onclick="enableGuesses()">
+        </label>
+        <div style="padding: 10px;"></div>
+        <label id="changeableGuesses">
+            Changeable Guesses
+            <input id="changeableGuessesBox" type="checkbox" onclick="enableChangeableGuesses()">
+        </label>
+        <div style="padding: 10px;"></div>
+        <label id="subOnlyMode">
+            Sub Only Mode
+            <input id="subOnlyModeBox" type="checkbox" onclick="enableSubOnlyMode()">
+        </label>
+        <div style="padding: 10px;"></div>
+        <button id="resetView" onclick="resetView()">Reset View</button>
+        <div style="padding: 10px;"></div>
+        <button id="resetMap" onclick="resetMap()">Reset Map</button>
+        <p style="font-size: small;">Resetting the map will clear the map and reset the guesses</p>
+        <div style="padding: 10px;"></div>
+        <label id="randomLocations">
+            [Debug] Every Message gets a random location
+            <input id="randomLocationsBox" type="checkbox" onclick="enableRandomLocations()">
+        </label>
+    </div>
+
+    <div id="answer">
+        <form id="answerForm">
+            <label>
+                Enter the Answer:
+                <input id="answerInput" type="text">
+                <input id="answerButton" type="button" value="Submit" onclick="processAnswer()">
+            </label>
+        </form>
+        <div style="padding: 10px;"></div>
+        <h3>Closest Players</h3>
+        <div id="roundLeaderboard"></div>
+        <table id="roundLeaderboards"></table>
+        <input id="loadMore" type="button" value="Load More" onclick="createLeaderboard(20, false)">
+    </div>
+
+    <div id="information">
+        <h3>Submitting a Guess</h3>
+        <p style="font-size: large">
+            Send a message in chat that contains the LATITUDE and LONGITUDE of the location you want to chose.
+            The values for LATITUDE and LONGITUDE <b>must be in that order</b> and separated by a comma.
+            LATITUDE must be between -90.0 and 90.0. LONGITUDE must be between -180.0 and 180.0.
+        </p>
+        <h3>Where to Find These Values</h3>
+        <p>
+            Map services such as Google Maps and Bing Maps use Latitude and Longitude and make it easy to get these values.
+        </p>
+        <p>
+            <b>For Google Maps (desktop):</b> Right click where you want your guess to be and click on the numbers at the top
+            of the menu to copy them to your clipboard. These can be pasted straight into chat. Alternatively the URL
+            itself (if links are allowed) or the numbers that follow the '@' can be pasted in.
+        </p>
+        <p>
+            <b>For Bing Maps (desktop):</b> Right click where you want your guess to be and click on the numbers at the bottom
+            of the menu and press CTRL + C to copy them. These can be pasted into chat.
+        </p>
+        <p>
+            The Google Maps app is very quick to replace these values with the name of the road. The website on mobile
+            is a better way of getting these values.
+        </p>
+        <h3>Examples of Acceptable Inputs</h3>
+        <p>
+            The message processing ignores most non-numeric characters as well as all whitespace so your format will probably be fine.
+        </p>
+        <ul>
+            <li>48.85742314451488, 2.3476072515552726</li>
+            <li>@48.8553502,2.3503079,16.42z</li>
+            <li>https://www.google.com/maps/@48.8553502,2.3503079,16.42z</li>
+            <li>latitude 48.857,  and the other one 2.34760726</li>
+        </ul>
+        <h3>Entering the Answer</h3>
+        <p>
+            The answer should be entered into the designated box on the left and the rules and information above applies.
+        </p>
+        <p>
+            The recommended method however would be to click on the flag after the round is over and paste the google maps
+            link it takes you to into the box.
+        </p>
+
+    </div>
+
+</div>
+
+<script>
+
+    let channelName = "";
+
+    let gameMap;
+    let guesses = 0;
+    let markers = {};
+    let answerMarker;
+    let scores = [];
+
+    let guessesDisplay = document.getElementById("guessesDisplay");
+
+    let subOnlyMode = document.getElementById("subOnlyModeBox").checked;
+    let guessesEnabled = document.getElementById("guessesEnabledBox").checked;
+    let changeableGuesses = document.getElementById("changeableGuessesBox").checked;
+    let randomLocations = document.getElementById("randomLocationsBox").checked;
+
+
+    document.getElementById("channelInput").addEventListener("keydown", function(event) {
+        if (event.code === "Enter") {
+            event.preventDefault();
+            document.getElementById("channelButton").click();
+        }
+    });
+    document.getElementById("answerInput").addEventListener("keydown", function(event) {
+        if (event.code === "Enter") {
+            event.preventDefault();
+            document.getElementById("answerButton").click();
+        }
+    });
+
+    function enableGuesses() { guessesEnabled = document.getElementById("guessesEnabledBox").checked; }
+    function enableChangeableGuesses() { changeableGuesses = document.getElementById("changeableGuessesBox").checked; }
+    function enableSubOnlyMode() { subOnlyMode = document.getElementById("subOnlyModeBox").checked; }
+    function enableRandomLocations() { randomLocations = document.getElementById("randomLocationsBox").checked; }
+
+    function setChannel() {
+        let text = document.getElementById("channelInput").value;
+        if (text !== "") {
+            channelName = text;
+            document.getElementById("channelForm").remove();
+            document.getElementById("mainGame").style.visibility = "visible";
+            initializeConnection();
+            createMap();
+        }
+    }
+
+    function processGuess(text) {
+        let possibleCoordinates = text.split(',');
+        if (possibleCoordinates.length < 2) { return; }
+        // Removes characters that aren't numeric or a decimal point, then removes any leading decimal points
+        // (this makes links work as intended)
+        let latitude = parseFloat(possibleCoordinates[0].replace(/[^\d.-]/g, '').replace(/^[.]+/, ""));
+        let longitude = parseFloat(possibleCoordinates[1].replace(/[^\d.-]/g, '').replace(/^[.]+/, ""));
+        if (latitude <= 90 && latitude >= -90 && longitude <= 180 && longitude >= -180) {
+            //console.log(text, latitude, longitude, "VALID");
+            return([latitude, longitude]);
+        }
+        else {
+            //console.log(text, latitude, longitude, "INVALID");
+        }
+    }
+
+    function processGuessRandomised() {
+        return [((Math.random() * 1750) / 10) - 90, ((Math.random() * 3550) / 10) - 180]
+    }
+
+    function processAnswer() {
+        let link = document.getElementById("answerInput").value;
+        let position = processGuess(link)
+        if (position === undefined) { return; }
+
+        if (answerMarker !== undefined) {
+            answerMarker.remove();
+        }
+        answerMarker = L.marker(position).addTo(gameMap);
+        answerMarker.bindPopup("GIVEN ANSWER");
+
+        let users = Object.keys(markers);
+        scores = [];
+        for (let i = 0; i < users.length; i++) {
+            let uPos = markers[users[i]].marker.getLatLng();
+            let uDist = gameMap.distance(uPos, L.latLng(position[0], position[1]));
+            scores.push([uDist, users[i], uPos]);
+        }
+        scores.sort(function(a,b){return parseFloat(a[0]) - parseFloat(b[0])});
+        createLeaderboard(10);
+    }
+
+    function createLeaderboard(numberToLoad = 20, reset = true) {
+        let oldEntrys = document.getElementsByClassName("roundLeaderboardNode");
+        if (reset) {
+            for (let i = oldEntrys.length - 1; i >= 0; i--) {
+                oldEntrys[i].remove();
+            }
+        }
+
+        let leaderboard = document.getElementById("roundLeaderboards");
+        let startingIndex = reset ? 0 : oldEntrys.length;
+        numberToLoad = scores.length >= startingIndex + numberToLoad ? numberToLoad : scores.length - startingIndex;
+        for (let i = startingIndex; i < startingIndex + numberToLoad; i++) {
+            let parentNode = document.createElement("tr");
+            let entryData = [i+1 + ".", scores[i][1], ((scores[i][0] > 1000) ? Math.floor(scores[i][0]) / 1000 + " km" : Math.floor(scores[i][0]) + " m")];
+            for (let j = 0; j < entryData.length; j++) {
+                let node = document.createElement("td");
+                node.style.paddingLeft = "10px";
+                node.innerText = entryData[j];
+                parentNode.appendChild(node)
+            }
+            let node = document.createElement("td");
+            node.style.paddingLeft = "10px";
+            let viewButton = document.createElement("button")
+            viewButton.className = "viewButton";
+            viewButton.innerText = "View"
+            viewButton.onclick = function(){focusOn(entryData[1])};
+            node.appendChild(viewButton);
+            parentNode.appendChild(node);
+            parentNode.className = "roundLeaderboardNode";
+            leaderboard.appendChild(parentNode)
+        }
+    }
+
+    function createMap() {
+        if (gameMap !== undefined) {
+            gameMap.off();
+            gameMap.remove();
+        }
+        gameMap = L.map('mapid', { preferCanvas: true }).setView([35, 0], 2);
+
+        L.tileLayer('https://api.mapbox.com/styles/v1/{id}/tiles/{z}/{x}/{y}?access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214AriISLbB6B5aw', {      // API KEY FROM LEAFLET'S WEBSITE
+            attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>, Program by <a target="_blank" href="https://horrid57.co.uk">horrid57</a>',    // Attribution is required - DO NOT REMOVE
+            maxZoom: 18,
+            minZoom: 2,
+            id: 'mapbox/streets-v11',
+            tileSize: 512,
+            zoomOffset: -1,
+        }).addTo(gameMap);
+    }
+
+    // Changing the player's view
+    function focusOn(user) {
+        let xy = markers[user].position;
+        gameMap.setView(xy, 15);
+    }
+    function resetView() {
+        gameMap.setView([35, 0], 2)
+    }
+
+    // Resets all values back to their default
+    function resetMap() {
+        createMap();
+        markers = {};
+        scores = [];
+        guesses = 0;
+        guessesDisplay.innerText = "Guesses: " + guesses.toString();
+        createLeaderboard()
+        document.getElementById("answerInput").value = "";
+    }
+
+    function addMarker(xy, user) {
+        let _marker = L.circleMarker(xy, {color: '#3388ff', radius: 5}).addTo(gameMap);
+        _marker.bindPopup(user + "<br><a target='_blank' href='https://www.google.com/maps/@" + xy[0].toString() + "," + xy[1].toString() + ",17z'>Open in Google Maps</a>");
+        markers[user] = {marker: _marker, user: user, position: xy};
+        console.log(user, "LAT: " + xy[0], 'LONG: ' + xy[1]);
+    }
+
+
+    function initializeConnection() {
+        const opts = {
+            connection: {
+                secure: true,
+                reconnect: true
+            },
+            channels: [channelName]
+        };
+
+        const client = new tmi.client(opts);
+
+        client.on('message', onMessageHandler);
+        client.on('connected', onConnectedHandler);
+
+        client.connect();
+    }
+
+    function onMessageHandler (target, context, msg) {
+        if (!guessesEnabled) { return; }    // Ignore every message if guesses aren't enabled
+        if (subOnlyMode && !context.subscriber) { return; }     // Ignore non-sub messages if sub only mode is on
+
+        let username = context.username;
+        let position = randomLocations ? processGuessRandomised() : processGuess(msg.toString())
+        if (position !== undefined) {
+            if (username in markers) {
+                if (changeableGuesses) {
+                    gameMap.removeLayer(markers[username].marker);
+                    addMarker(position, username);
+                }
+            }
+            else {
+                guesses++;
+                guessesDisplay.innerText = "Guesses: " + guesses.toString();
+                addMarker(position, username);
+            }
+        }
+    }
+
+    function onConnectedHandler (addr, port) {
+        console.log('Connected to Twitch Chat');
+    }
+
+
+</script>
+</body>
+</html>
