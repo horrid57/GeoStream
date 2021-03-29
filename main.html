@@ -108,13 +108,21 @@
     }
 
     #resetView,
-    #resetMap {
+    #nextRound,
+    #resetGame {
         border-radius: 4px;
         font-size: large;
     }
 
+    #resetGame {
+        color: red;
+        font-weight: bold;
+    }
+
     #loadMore,
-    #answerButton {
+    #answerButton,
+    #zoomMapButton,
+    #totalLeaderboard {
         border-radius: 3px;
     }
 
@@ -157,8 +165,11 @@
         <div style="padding: 10px;"></div>
         <button id="resetView" onclick="resetView()">Reset View</button>
         <div style="padding: 10px;"></div>
-        <button id="resetMap" onclick="resetMap()">Reset Map</button>
-        <p style="font-size: small;">Resetting the map will clear the map and reset the guesses</p>
+        <button id="nextRound" onclick="nextRound()">Next Round</button>
+        <p style="font-size: small;">Next Round will reset the map and clear all guesses</p>
+        <hr>
+        <button id="resetGame" onclick="resetGame()">Reset Game</button>
+        <p style="font-size: small;">Clears the map and resets guesses AND resets accumulated points</p>
         <div style="padding: 10px;"></div>
         <label id="randomLocations">
             [Debug] Every Message gets a random location
@@ -172,6 +183,7 @@
                 Enter the Answer:
                 <input id="answerInput" type="text">
                 <input id="answerButton" type="button" value="Submit" onclick="processAnswer()">
+                <input id="zoomMapButton" type="button" value="Zoom Map" onclick="zoomMap()">
             </label>
         </form>
         <div style="padding: 10px;"></div>
@@ -179,9 +191,10 @@
         <div id="roundLeaderboard"></div>
         <table id="roundLeaderboards"></table>
         <input id="loadMore" type="button" value="Load More" onclick="createLeaderboard(20, false)">
+        <input id="totalLeaderboard" type="button" value="Load Total Points Leaderboard" onclick="createFinalLeaderboard(-1)">
     </div>
 
-    <div id="information">
+    <div id="information" style="">
         <h3>Submitting a Guess</h3>
         <p style="font-size: large">
             Send a message in chat that contains the LATITUDE and LONGITUDE of the location you want to chose.
@@ -223,6 +236,7 @@
             The recommended method however would be to click on the flag after the round is over and paste the google maps
             link it takes you to into the box.
         </p>
+        <b>Each time you click, points will be awarded. ONLY CLICK ONCE PER ROUND.</b>
 
     </div>
 
@@ -237,6 +251,7 @@
     let markers = {};
     let answerMarker;
     let scores = [];
+    let points = {};
 
     let guessesDisplay = document.getElementById("guessesDisplay");
 
@@ -295,7 +310,7 @@
         return [((Math.random() * 1750) / 10) - 90, ((Math.random() * 3550) / 10) - 180]
     }
 
-    function processAnswer() {
+    function processAnswer2() {
         let link = document.getElementById("answerInput").value;
         let position = processGuess(link)
         if (position === undefined) { return; }
@@ -317,6 +332,65 @@
         createLeaderboard(10);
     }
 
+    function processAnswer() {
+        let link = document.getElementById("answerInput").value;
+        let position = processGuess(link)
+        if (position === undefined) { return; }
+
+        if (answerMarker !== undefined) {
+            answerMarker.remove();
+        }
+        answerMarker = L.marker(position).addTo(gameMap);
+        if (link.includes("google.com/maps")) {
+            answerMarker.bindPopup("GIVEN ANSWER" + "<br><a target='_blank' href=" + link +">Open in Google Maps</a>");
+        }
+        else {
+            answerMarker.bindPopup("GIVEN ANSWER" + "<br><a target='_blank' href='https://www.google.com/maps/@" + position[0].toString() + "," + position[1].toString() + ",15z'>Open in Google Maps</a>");
+        }
+
+        let users = Object.keys(markers);
+        scores = [];
+        for (let i = 0; i < users.length; i++) {
+            let uPos = markers[users[i]].marker.getLatLng();
+            let uDist = gameMap.distance(uPos, L.latLng(position[0], position[1]));
+            let earnedPoints = Math.floor(5000.5 * Math.exp(uDist * -0.00000067))
+            scores.push([uDist, users[i], uPos, earnedPoints]);
+            points[users[i]] = points[users[i]] !== undefined ? points[users[i]] + earnedPoints : earnedPoints;
+        }
+        scores.sort(function(a,b){return parseFloat(a[0]) - parseFloat(b[0])});
+        let numberToConnect = (scores.length < 20) ? scores.length : 20;
+        for (let i = 0; i < numberToConnect; i++) {
+            let color = '#d91916'
+            if (i === 0) {
+                color = '#ffca00'
+            }
+            else if (i === 1) {
+                color = '#ffffff'
+            }
+            else if (i === 2) {
+                color = '#ff6e00'
+            }
+            let polyline = new L.Polyline([scores[i][2], answerMarker.getLatLng()], {
+                color: color,
+                weight: i < 4 ? 4 : 2,
+                opacity: i < 4 ? 0.8 : 2.0 / i,
+                smoothFactor: 1
+            });
+            polyline.addTo(gameMap);
+        }
+        //createLeaderboard2(20);
+    }
+
+    function zoomMap() {
+        let maxIndex = scores.length < 4 ? scores.length : 4;
+        let groupMarkers = [answerMarker];
+        for (let i = 0; i < maxIndex; i++) {
+            groupMarkers.push(markers[scores[i][1]].marker);
+        }
+        let group = new L.featureGroup(groupMarkers);
+        gameMap.fitBounds(group.getBounds());
+    }
+
     function createLeaderboard(numberToLoad = 20, reset = true) {
         let oldEntrys = document.getElementsByClassName("roundLeaderboardNode");
         if (reset) {
@@ -330,10 +404,11 @@
         numberToLoad = scores.length >= startingIndex + numberToLoad ? numberToLoad : scores.length - startingIndex;
         for (let i = startingIndex; i < startingIndex + numberToLoad; i++) {
             let parentNode = document.createElement("tr");
-            let entryData = [i+1 + ".", scores[i][1], ((scores[i][0] > 1000) ? Math.floor(scores[i][0]) / 1000 + " km" : Math.floor(scores[i][0]) + " m")];
+            let entryData = [i+1 + ".", scores[i][1], ((scores[i][0] > 1000) ? Math.floor(scores[i][0] / 1000) + " km" : Math.floor(scores[i][0]) + " m"), scores[i][3]];
             for (let j = 0; j < entryData.length; j++) {
                 let node = document.createElement("td");
-                node.style.paddingLeft = "10px";
+                node.style.paddingLeft = "15px";
+                node.style.fontSize = 'large';
                 node.innerText = entryData[j];
                 parentNode.appendChild(node)
             }
@@ -348,6 +423,53 @@
             parentNode.className = "roundLeaderboardNode";
             leaderboard.appendChild(parentNode)
         }
+    }
+
+    function createFinalLeaderboard(numberToLoad = 20) {
+        let users = Object.keys(points);
+        scores = [];
+        for (let i = 0; i < users.length; i++) {
+            scores.push([users[i], points[users[i]]]);
+        }
+        scores.sort(function(a,b){return parseFloat(b[1]) - parseFloat(a[1])});
+
+        if (numberToLoad === -1) {
+            numberToLoad = Object.keys(points).length
+        }
+
+        let leaderboard = document.createElement("table");
+        leaderboard.style.position = 'relative';
+        leaderboard.style.left = '50%';
+        leaderboard.style.transform = 'translate(-50%)';
+
+        let script = document.createElement('script');
+        script.src = 'https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js';
+        script.innerText = "$(document).ready(function(){$('tr.roundLeaderboardNode').fadeIn(2000);})";
+        let startingIndex = 0
+        numberToLoad = scores.length >= startingIndex + numberToLoad ? numberToLoad : scores.length - startingIndex;
+        for (let i = startingIndex; i < startingIndex + numberToLoad; i++) {
+            let parentNode = document.createElement("tr");
+            let entryData = [i+1 + ".", scores[i][0], scores[i][1]];
+            for (let j = 0; j < entryData.length; j++) {
+                let node = document.createElement("td");
+                node.style.paddingLeft = "30px";
+                node.style.paddingRight = '30px';
+                node.style.paddingTop = '5px';
+                node.style.fontSize = 'x-large';
+                if (i % 2 === 0) {
+                    parentNode.style.backgroundColor = "#FAFAFA";
+                    parentNode.style.outlineColor = '#FAFAFA';
+                }
+                node.innerText = entryData[j];
+                parentNode.appendChild(node)
+            }
+            parentNode.className = "roundLeaderboardNode";
+            leaderboard.appendChild(parentNode)
+        }
+
+        let tab = window.open('about:blank', '_blank');
+        tab.document.write(script.outerHTML, leaderboard.outerHTML);
+        tab.document.close();
     }
 
     function createMap() {
@@ -377,7 +499,7 @@
     }
 
     // Resets all values back to their default
-    function resetMap() {
+    function nextRound() {
         createMap();
         markers = {};
         scores = [];
@@ -387,8 +509,13 @@
         document.getElementById("answerInput").value = "";
     }
 
+    function resetGame() {
+        nextRound();
+        points = {};
+    }
+
     function addMarker(xy, user) {
-        let _marker = L.circleMarker(xy, {color: '#3388ff', radius: 5}).addTo(gameMap);
+        let _marker = L.circleMarker(xy, {color: '#e2151c', radius: 5}).addTo(gameMap);
         _marker.bindPopup(user + "<br><a target='_blank' href='https://www.google.com/maps/@" + xy[0].toString() + "," + xy[1].toString() + ",17z'>Open in Google Maps</a>");
         markers[user] = {marker: _marker, user: user, position: xy};
         console.log(user, "LAT: " + xy[0], 'LONG: ' + xy[1]);
